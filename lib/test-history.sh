@@ -2,7 +2,7 @@
 
 ble-import lib/core-test
 
-ble/test/start-section 'ble/builtin/history' 41
+ble/test/start-section 'ble/builtin/history' 44
 
 #------------------------------------------------------------------------------
 # helpers
@@ -183,6 +183,9 @@ function ble/test/history/initialize-rskip {
            '# rskip is the number of entries in the file'
   ble/test 'ble/util/print "$_ble_builtin_history_wskip"' stdout=2 \
            '# wskip follows the last history number'
+  ble/test '(HISTTIMEFORMAT="%s "; builtin history) | ble/bin/awk "{ sub(/^ *[0-9]+\\*? +/, \"\"); print; }"' \
+           stdout=$'1700000002 echo cmd2\n1700000003 echo cmd3' \
+           '# every entry keeps its own timestamp (not the following one)'
 
   # fetch: the new entries are kept in the "new" file until the next read
   builtin history -c
@@ -295,5 +298,32 @@ function ble/test/history/initialize-rskip {
 
   ble/test/rmdir
 )
+
+#------------------------------------------------------------------------------
+# ble/history:bash/resolve-multiline/.awk (resolve mode)
+#
+#   The rebuild of the history list must keep each entry's own timestamp.
+
+if ((_ble_bash>=40400)); then
+  (
+    ble/test/chdir || exit
+    ble/test/history/reset-state
+    local -x tmpfile_base=$PWD/mlfix
+    # entry 2 has no timestamp ("??" is what "builtin history" prints for it)
+    printf '%s\n' \
+      '    1  __ble_time_1700000001__echo a' \
+      '    2  ??echo b' \
+      "    3  __ble_time_1700000003__eval -- \$'echo multi\\necho line2'" \
+      '    4  __ble_time_1700000004__echo c' |
+      ble/history:bash/resolve-multiline/.awk resolve >/dev/null 2>&1
+    ble/test 'ble/bin/awk "/^#/ { print; }" mlfix.0.part' \
+             stdout=$'#1700000001\n#1700000001\n#1700000003\n#1700000004' \
+             '# timestamps are not shifted; an entry without one inherits its predecessor'
+    ble/test 'ble/bin/awk "!/^#/ { print; }" mlfix.0.part' \
+             stdout=$'echo a\necho b\necho multi\necho line2\necho c' \
+             '# the encoded multiline entry is decoded'
+    ble/test/rmdir
+  )
+fi
 
 ble/test/end-section
