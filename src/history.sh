@@ -604,6 +604,11 @@ if ((_ble_bash>=30100)); then
 
         entry_nline = 0;
         entry_text = "";
+        # Note: entry_time is carried over to entries without a timestamp of
+        #   their own, so they keep the time order of their neighbors.  Until
+        #   the first timestamp is seen, the current time is used in Bash >=
+        #   4.4, which needs a timestamp line on every entry so that
+        #   multi-line entries are read back as single entries.
         entry_time = "";
         if (_ble_bash >= 40400)
           entry_time = ENVIRON["epoch"];
@@ -712,14 +717,21 @@ if ((_ble_bash>=30100)); then
         }
       }
   
+      # Note: The pending entry has to be flushed before the timestamp of the
+      #   current line is read into entry_time.  Otherwise, the previous entry
+      #   is registered with the time of the entry that follows it, which
+      #   shifts all the timestamps by one entry on every rebuild.
       {
         if (is_resolve) {
-          save_timestamp($0);
-          if (sub(/^ *[0-9]+\*? +(__ble_time_[0-9]*__|\?\?|.+: invalid timestamp)/, "", $0))
+          line = $0;
+          if (sub(/^ *[0-9]+\*? +(__ble_time_[0-9]*__|\?\?|.+: invalid timestamp)/, "", $0)) {
             flush_entry();
+            save_timestamp(line);
+          }
           entry_text = ++entry_nline == 1 ? $0 : entry_text "\n" $0;
         } else {
           if ($0 ~ /^#[0-9]/) {
+            flush_entry();
             save_timestamp($0);
             next;
           } else {
